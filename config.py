@@ -203,7 +203,7 @@ class Instance(object):
                     result)
                 
                 print(f'End of Group {str(i + 1)} / {group} training', self.name)
-                self.logger.info(f'End of Group {str(i + 1)} / {group} training', self.name)
+                self.logger.info('End of Group %s / %s training %s', str(i + 1), group, self.name)
 
     def run(self, verbose=2):
         self.runModel(self.param.model, verbose)
