@@ -27,7 +27,7 @@ dataset="ml-100k"
 model="wmf"
 group=10
 learn="retrain"
-deltype="random"
+deltype="interaction"
 delper=5
 verbose=2
 
