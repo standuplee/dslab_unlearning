@@ -9,9 +9,14 @@ from utils import seed_all, baseTrain, baseTest
 from utils import WMF, DMF, GMF, NMF, BPR
 
 import wandb
+import logging
 
 class Scratch(object):
     def __init__(self, param, model_type):
+        # Logger 생성
+        self.logger = logging.getLogger(f"Scratch-{model_type}")
+        self.logger.setLevel(logging.INFO)
+        
         # model param
         self.n_user = param.n_user
         self.n_item = param.n_item
@@ -177,5 +182,11 @@ class Scratch(object):
             'inactive_hr': inactive_hr,
             'inactive_recall': inactive_recall
         }
+        # Logger로 결과 출력
+        self.logger.info(f"---------------- best -----------------")
+        self.logger.info(f"Best Results: {result}")
+
+        # wandb로 전체 결과 업로드
+        wandb.log(result)
 
         return model, result
