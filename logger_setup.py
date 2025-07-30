@@ -4,7 +4,7 @@ import os
 import wandb
 
 def setup_logger(log_file):
-    """Log4j 스타일 로거 세팅 (콘솔: DEBUG 이상, 파일: INFO 이상)"""
+    """로거 세팅 (콘솔: DEBUG 이상, 파일: INFO 이상)"""
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
 
     logging_config = {
