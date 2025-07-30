@@ -1,0 +1,17 @@
+# Python 캐시/빌드
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.pyo
+*.egg-info/
+build/
+dist/
+
+# 로그와 결과 파일
+log/
+logs/
+*.log
+results/
+wandb/
+*.npy
