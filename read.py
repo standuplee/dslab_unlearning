@@ -33,18 +33,19 @@ def delete(ratings, del_type, del_per):
     return delete_users
 
 
-def delete_interaction(ratings, del_per):
-    np.random.seed(42)
+def delete_interaction(ratings, del_per, seed=None):
+    if seed is not None:
+        np.random.seed(seed)
     num_to_delete = int(len(ratings) * del_per / 100)
     delete_idx = np.random.choice(ratings.index, num_to_delete, replace=False)
     ratings = ratings.drop(delete_idx).reset_index(drop=True)
     
-    print(delete_idx[:5])
-    print(len(delete_idx))
+    print(f"Deleted {len(delete_idx)} interactions (sample idx: {delete_idx[:5]})")
     return ratings
 
 
 def readRating_full(train_dir, test_dir, del_type='random', del_per=5):
+    # retrain시에도 해당 함수 사용할 것
     train_ratings = pd.read_csv(train_dir, sep=',')
     test_ratings = pd.read_csv(test_dir, sep=',')
 
@@ -148,6 +149,7 @@ def readRating_group(train_dir, test_dir, del_type='random', del_per=5, learn_ty
                               user_groups]
 
         print(f'Grouping time: {time.time() - start_time}')
+        
 
     active_groups = []
     inactive_groups = []

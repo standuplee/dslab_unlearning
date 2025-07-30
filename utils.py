@@ -7,6 +7,13 @@ from torch import nn
 
 STD = 0.01
 
+def recall(gt_items, pred_items):
+    hits = 0
+    for gt_item in gt_items:
+        if gt_item in pred_items:
+            hits += 1
+    return hits / len(gt_items) if len(gt_items) > 0 else 0
+
 
 def hit(gt_items, pred_items):
     hr = 0
