@@ -1,15 +1,14 @@
 import sys
 import os
-
 import numpy as np
 import time
-from torch import nn
-from torch import optim
+from torch import nn, optim
 import torch
 
 from utils import seed_all, baseTrain, baseTest
 from utils import WMF, DMF, GMF, NMF, BPR
 
+import wandb
 
 class Scratch(object):
     def __init__(self, param, model_type):
@@ -36,34 +35,31 @@ class Scratch(object):
         os.makedirs(self.save_dir, exist_ok=True)
 
         # log
-        self.log = {'train_loss': [],
-                    'test_rmse': [],
-                    'test_ndcg': [],
-                    'test_hr': [],
-                    'total_rmse': [],
-                    'total_ndcg': [],
-                    'total_hr': [],
-                    'time': []}
+        self.log = {
+            'train_loss': [],
+            'test_ndcg': [],
+            'test_hr': [],
+            'test_recall': [],
+            'active_ndcg': [],
+            'active_hr': [],
+            'active_recall': [],
+            'inactive_ndcg': [],
+            'inactive_hr': [],
+            'inactive_recall': [],
+            'time': []
+        }
 
         if self.model_type in ['wmf']:
             self.loss_fn = 'point-wise'
-            # self.loss_fn = nn.MSELoss(reduction='sum')
-            # self.is_rmse = True
-            # self.loss_fn = nn.BCELoss()
-            # self.is_rmse = False
         elif self.model_type == 'bpr':
             self.loss_fn = 'pair-wise'
-
         elif self.model_type in ['dmf', 'gmf', 'nmf']:
             self.layers = param.layers
-            # self.loss_fn = nn.BCELoss()
             self.loss_fn = 'point-wise'
-            self.is_rmse = False
 
     def train(self, train_data, test_data, active_test_data, inactive_test_data, verbose=2, save_dir='',
               id=0, given_model=''):
         print('Using device:', self.device)
-        # seed for reproducibility
         seed_all(self.seed)
 
         # build model
@@ -81,89 +77,105 @@ class Scratch(object):
         else:
             model = given_model.to(self.device)
 
-        # set optimizer
-
         opt = optim.Adam(model.parameters(), lr=self.lr)
 
         # main loop
-        best_ndcg = 0
-        best_hr = 0
-        count_dec = 0
-        total_time = 0
+        best_ndcg, best_hr, best_recall = 0, 0, 0
+        count_dec, total_time = 0, 0
 
         pos_dict = np.load(self.pos_dir, allow_pickle=True).item()
 
         for t in range(self.epochs):
-            # if verbose == 2:
             print(f'Epoch: [{t + 1:>3d}/{self.epochs:>3d}] --------------------')
             epoch_start = time.time()
 
             # train
             train_loss = baseTrain(train_data, model, self.loss_fn, opt, self.device, verbose)
-
             train_time = time.time() - epoch_start
-
-            print(train_time)
             total_time += train_time
+
             user_mapping = None
             pos_mapping = None
 
-            test_ndcg, test_hr = baseTest(test_data, model, self.loss_fn, self.device, verbose, pos_dict, self.n_item,
-                                          20,user_mapping,pos_mapping)
-
-
-            # print info
+            # test metrics
+            test_ndcg, test_hr, test_recall = baseTest(test_data, model, self.loss_fn, self.device, verbose, pos_dict, self.n_item, 20)
             epoch_time = time.strftime('%H:%M:%S', time.gmtime(time.time() - epoch_start))
 
-            # if verbose == 2:
             print('Time:', epoch_time)
             print('train_loss:', train_loss)
             print('test_ndcg:', test_ndcg)
             print('test_hr:', test_hr)
+            print('test_recall:', test_recall)
 
-            # save log
+            # 로그 저장
             self.log['train_loss'].append(train_loss)
             self.log['test_ndcg'].append(test_ndcg)
             self.log['test_hr'].append(test_hr)
+            self.log['test_recall'].append(test_recall)
             self.log['time'].append(epoch_time)
 
+            # wandb log
+            wandb.log({
+                "epoch": t + 1,
+                "train_loss": train_loss,
+                "test_ndcg": test_ndcg,
+                "test_hr": test_hr,
+                "test_recall": test_recall
+            })
+
+            # Early stopping
             if test_ndcg > best_ndcg:
                 count_dec = 0
-                best_ndcg = test_ndcg
-                best_hr = test_hr
-                torch.save(model.state_dict(), self.save_dir + '/model' + '.pth')
-                torch.save(model.user_mat.weight.detach().cpu().numpy(), self.save_dir + '/user_mat' + '.npy')
+                best_ndcg, best_hr, best_recall = test_ndcg, test_hr, test_recall
+                torch.save(model.state_dict(), self.save_dir + '/model.pth')
+                torch.save(model.user_mat.weight.detach().cpu().numpy(), self.save_dir + '/user_mat.npy')
             else:
                 count_dec += 1
 
             if count_dec > 5:
                 break
 
+        # Active evaluation
         if active_test_data is not None:
-            active_ndcg, active_hr = baseTest(active_test_data, model, self.loss_fn, self.device, verbose, pos_dict,
-                                              self.n_item, 20,user_mapping,pos_mapping)
+            active_ndcg, active_hr, active_recall = baseTest(active_test_data, model, self.loss_fn, self.device, verbose, pos_dict, self.n_item, 20)
             print('active_test_ndcg:', active_ndcg)
         else:
-            active_ndcg = 0
-            active_hr = 0
-        inactive_ndcg, inactive_hr = baseTest(inactive_test_data, model, self.loss_fn, self.device, verbose,
-                                              pos_dict,
-                                              self.n_item,
-                                              20,user_mapping,pos_mapping)
+            active_ndcg, active_hr, active_recall = 0, 0, 0
+
+        # Inactive evaluation
+        inactive_ndcg, inactive_hr, inactive_recall = baseTest(inactive_test_data, model, self.loss_fn, self.device, verbose, pos_dict, self.n_item, 20)
         print('inactive_test_ndcg:', inactive_ndcg)
+
+        # 저장
+        self.log['active_ndcg'].append(active_ndcg)
+        self.log['active_hr'].append(active_hr)
+        self.log['active_recall'].append(active_recall)
+        self.log['inactive_ndcg'].append(inactive_ndcg)
+        self.log['inactive_hr'].append(inactive_hr)
+        self.log['inactive_recall'].append(inactive_recall)
+
+        # wandb log active/inactive
+        wandb.log({
+            "active_ndcg": active_ndcg,
+            "active_hr": active_hr,
+            "active_recall": active_recall,
+            "inactive_ndcg": inactive_ndcg,
+            "inactive_hr": inactive_hr,
+            "inactive_recall": inactive_recall
+        })
+
         print('-------best--------')
-        result = {'time': total_time, 'ndcg': best_ndcg, 'hr': best_hr, 'active_ndcg': active_ndcg,
-                  'active_hr': active_hr, 'inactive_ndcg': inactive_ndcg, 'inactive_hr': inactive_hr}
-
-        # save model
-        # torch.save(model.state_dict(), f'results/gowalla/{self.model_type}.pth')
-
-        # load mat
-        # user_mat = np.load('user_mat.npy')
-        # item_mat = np.load('item_mat.npy')
-
-        # np.save(save_dir + '/log.npy', self.log)
-        # load log
-        # log = np.load('log.npy', allow_pickle=True).item()
+        result = {
+            'time': total_time,
+            'ndcg': best_ndcg,
+            'hr': best_hr,
+            'recall': best_recall,
+            'active_ndcg': active_ndcg,
+            'active_hr': active_hr,
+            'active_recall': active_recall,
+            'inactive_ndcg': inactive_ndcg,
+            'inactive_hr': inactive_hr,
+            'inactive_recall': inactive_recall
+        }
 
         return model, result

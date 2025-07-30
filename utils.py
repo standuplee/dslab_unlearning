@@ -273,18 +273,14 @@ def baseTrain(dataloader, model, loss_fn, opt, device, verbose):
 
 # torch test
 def baseTest(dataloader, model, loss_fn, device, verbose, pos_dict, 
-             n_items, top_k=20, user_mapping=None,
-             pos_mapping=None):
+             n_items, top_k=20, user_mapping=None, pos_mapping=None):
     model.eval()
-
     full_items = [i for i in range(n_items)]
-
-    HR = []
-    NDCG = []
+    
+    HR, NDCG, Recall = [], [], []
 
     for user, item, rating in dataloader:
-        all_users = user.unique()
-        all_users = all_users.to(device)
+        all_users = user.unique().to(device)
         user = user.to(device)
         item = item.to(device)
 
@@ -294,17 +290,18 @@ def baseTest(dataloader, model, loss_fn, device, verbose, pos_dict,
             gt_items = item[user_indices].cpu().numpy().tolist()
 
             neg_items = list(set(full_items) - set(pos_dict[user_id]))
-
             new_user = torch.tensor([user_id] * len(neg_items), dtype=torch.long).to(device)
             new_item = torch.tensor(neg_items, dtype=torch.long).to(device)
+
             predictions = model(new_user, new_item)
             _, indices = torch.topk(predictions, top_k)
             recommends = torch.take(new_item, indices).cpu().numpy().tolist()
 
             HR.append(hit(gt_items, recommends))
             NDCG.append(ndcg(gt_items, recommends))
+            Recall.append(recall(gt_items, recommends))
 
-    return np.mean(NDCG), np.mean(HR)
+    return np.mean(NDCG), np.mean(HR), np.mean(Recall)
 
 
 # shrink and perturb
