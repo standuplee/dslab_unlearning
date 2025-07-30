@@ -3,6 +3,7 @@ import argparse
 import numpy as np
 
 from config import InsParam, Instance
+from logger_setup import setup_logger, init_wandb
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='ml-100k', help='dataset name')
@@ -21,6 +22,15 @@ parser.add_argument('--model', type=str, default='wmf', help='rec model')
 def main():
     # read parser
     args = parser.parse_args()
+    
+    # Logger 세팅
+    log_path = f"./log/{args.model}_{args.dataset}_{args.learn}_{args.deltype}_{args.delper}.log"
+    logger = setup_logger(log_path)
+    logger.info("Logger initialized")
+
+    # wandb 세팅
+    init_wandb(args)
+
 
     assert args.model in ['wmf', 'dmf', 'bpr', 'gmf', 'nmf']
     model = args.model
@@ -64,7 +74,9 @@ def main():
     ins = Instance(param)
 
     # begin instance
+    logger.info(f"Starting experiment: dataset={dataset}, model={model}, learn={learn_type}, deltype={del_type}, delper={del_per}")
     ins.run(verbose=verbose)
+    logger.info("Experiment finished")
 
 
 if __name__ == '__main__':

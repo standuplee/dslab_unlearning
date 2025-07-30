@@ -10,6 +10,9 @@ from utils import saveObject
 from read import RatingData, PairData
 from read import loadData, readRating_full, readRating_group
 
+import wandb
+import logging
+
 DATA_DIR = abspath(join(dirname(__file__), 'data'))
 SAVE_DIR = abspath(join(dirname(__file__), 'result'))
 
@@ -85,6 +88,8 @@ class Instance(object):
 
         # save param
         saveObject(param_dir + '/param', self.param)  # loadObject(dir + '/param')
+        
+        self.logger = logging.getLogger(__name__)
 
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
@@ -109,6 +114,7 @@ class Instance(object):
 
     def runModel(self, model_type='wmf', verbose=2):
         print(self.name, 'begin:')
+        self.logger.info(f"{self.name} begin:")
         # read raw data
         train_rating, test_rating, active_rating, inactive_rating = self.read()
 
@@ -130,18 +136,31 @@ class Instance(object):
             inactive_test_data = loadData(RatingData(inactive_rating), len(inactive_rating[0]), self.param.n_worker,
                                           False)
 
+            self.logger.info(f"Train_data_unique: {len(np.unique(train_rating[0].values))}")
+            self.logger.info(f'Test_data_unique: {len(np.unique(test_rating[0].values))}')
+            
             print(f'Train_data_unique: {len(np.unique(train_rating[0].values))}')
             print(f'Test_data_unique: {len(np.unique(test_rating[0].values))}')
             
             model = Scratch(self.param, model_type)
             model, result = model.train(train_data, test_data, active_test_data, inactive_test_data, verbose,
                                         given_model='')
+            
+            
+            # wandb metric 기록
+            wandb.log({
+                "Recall@10": result.get("Recall", 0),
+                "NDCG@10": result.get("NDCG", 0),
+                "HitRatio@10": result.get("HitRatio", 0)
+            })
+            
             result.update({'model': model_type, 'dataset': self.param.dataset, 'deltype': self.param.del_type,
                            'method': self.param.learn_type})
             np.save(
                 f'results/{self.param.learn_type}/{model_type}_{self.param.dataset}_{self.param.del_type}_{self.param.del_per}.npy',
                 result)
             print('End of training', self.name)
+            self.logger.info(f"Training finished for {self.name}")
         else:
             group = self.param.n_group
             for i in range(group):
@@ -169,12 +188,22 @@ class Instance(object):
                 model = Scratch(self.param, model_type)
                 model, result = model.train(train_data, test_data, active_test_data, inactive_test_data, verbose,
                                             given_model='')
+                
+                # wandb metric 기록
+                wandb.log({
+                    f"Group{i+1}_Recall@10": result.get("Recall", 0),
+                    f"Group{i+1}_NDCG@10": result.get("NDCG", 0),
+                    f"Group{i+1}_HitRatio@10": result.get("HitRatio", 0)
+                })
+                
                 result.update({'model': model_type, 'dataset': self.param.dataset, 'deltype': self.param.del_type,
                                'method': self.param.learn_type, 'group': i + 1})
                 np.save(
                     f'results/{self.param.learn_type}/group{i + 1}_{self.param.n_group}_{model_type}_{self.param.dataset}_{self.param.del_type}_{self.param.del_per}.npy',
                     result)
+                
                 print(f'End of Group {str(i + 1)} / {group} training', self.name)
+                self.logger.info(f'End of Group {str(i + 1)} / {group} training', self.name)
 
     def run(self, verbose=2):
         self.runModel(self.param.model, verbose)
