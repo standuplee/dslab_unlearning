@@ -85,9 +85,14 @@ def readRating_group(train_dir, test_dir, del_type='random', del_per=5, learn_ty
     test_ratings = pd.read_csv(test_dir, sep=',')
 
     if del_per > 0:
-        del_user = delete(train_ratings, del_type, del_per)
-        train_ratings = train_ratings[~train_ratings['uid'].isin(del_user)].reset_index(drop=True)
-        test_ratings = test_ratings[~test_ratings['uid'].isin(del_user)].reset_index(drop=True)
+        if del_type in ['random', 'core', 'edge']:
+            del_user = delete(train_ratings, del_type, del_per)
+            train_ratings = train_ratings[~train_ratings['uid'].isin(del_user)].reset_index(drop=True)
+            test_ratings = test_ratings[~test_ratings['uid'].isin(del_user)].reset_index(drop=True)
+        elif del_type == 'interaction':
+            train_ratings = delete_interaction(train_ratings, del_per).reset_index(drop=True)
+            test_ratings = delete_interaction(test_ratings, del_per).reset_index(drop=True)
+            
     # active and inactive
     user_counts = train_ratings['uid'].value_counts()
     num_active_users = int(len(user_counts) * 5 / 100)
