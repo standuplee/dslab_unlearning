@@ -63,7 +63,7 @@ We support:
 - **Script:** `run.sh`
 - **Supported Methods:** `retrain`, `sisa`, `receraser`, `ultrare`
 
-```bash
+
 ./run.sh
 
 또는
