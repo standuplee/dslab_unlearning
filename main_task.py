@@ -2,8 +2,9 @@ import argparse
 
 import numpy as np
 
-from config import InsParam, Instance
+from config import InsParam, Instance, task_instance
 from logger_setup import setup_logger, init_wandb
+from utils import seed_all
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='ml-100k', help='dataset name')
@@ -12,14 +13,18 @@ parser.add_argument('--worker', type=int, default=8, help='number of CPU workers
 parser.add_argument('--verbose', type=int, default=2, help='verbose type')
 parser.add_argument('--group', type=int, default=10, help='number of groups')
 parser.add_argument('--layer', nargs='+', default=[64, 32], help='setting of layers')
-parser.add_argument('--learn', type=str, default='sisa', help='type of learning and unlearning')
+parser.add_argument('--learn', type=str, default='task_vector', help='type of learning and unlearning')
 parser.add_argument('--delper', type=float, default=0.5, help='deleted user proportion')
-parser.add_argument('--deltype', type=str, default='random', help='unlearn data selection')
+parser.add_argument('--deltype', type=str, default='interaction', help='unlearn data selection')
 parser.add_argument('--model', type=str, default='wmf', help='rec model')
 parser.add_argument('--origin_model_path', type=str, default='na', help='task vector model')
+parser.add_argument('--oracle_model_path', type=str, default='na', help='oracle model')
 parser.add_argument('--alpha', type=float, default=0.5, help='alpha')
 parser.add_argument('--beta', type=float, default=0.3, help='beta')
 parser.add_argument('--rank_ratio', type=float, default=0.8, help='rank ratio')
+parser.add_argument('--use_degree_weighting', type=bool, default=False, help='use degree weighting')
+parser.add_argument('--degree_weight_power', type=float, default=0.5, help='degree weight power')
+parser.add_argument('--normalize_weights', type=bool, default=False, help='normalize weights')
 
 
 # this is an example of main
@@ -34,6 +39,7 @@ def main():
 
     # wandb 세팅
     init_wandb(args)
+    seed_all(42)
 
 
     assert args.model in ['wmf', 'dmf', 'bpr', 'gmf', 'nmf']
@@ -64,7 +70,7 @@ def main():
         assert type(i) == int
     layers = args.layer
 
-    assert args.learn in ['retrain', 'sisa', 'receraser', 'ultrare']
+    assert args.learn in ['task_vector']
     learn_type = args.learn
 
     assert args.delper >= 0
@@ -74,8 +80,8 @@ def main():
     del_type = args.deltype
 
     # initiate instance
-    param = InsParam(dataset, model, epochs, n_worker, layers, n_group, del_per, learn_type, del_type)
-    ins = Instance(param)
+    param = InsParam(dataset, model, epochs, n_worker, layers, n_group, del_per, learn_type, del_type, args.origin_model_path, args)
+    ins = task_instance(param)
 
     # begin instance
     logger.info(f"Starting experiment: dataset={dataset}, model={model}, learn={learn_type}, deltype={del_type}, delper={del_per}")

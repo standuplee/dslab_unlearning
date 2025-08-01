@@ -16,3 +16,10 @@ POT>=0.8.0
 
 # Experiment Tracking
 wandb>=0.15.0
+
+# PyTorch Geometric & 관련 의존성 (CUDA 11.8 기준)
+torch-geometric==2.3.1
+torch-scatter==2.1.2
+torch-sparse==0.6.18
+torch-cluster==1.6.1
+torch-spline-conv==1.2.2

@@ -1,13 +1,17 @@
+## 실험 파라미터 설정
+
 import os
 import warnings
 import time
 from os.path import abspath, join, dirname, exists
 
+import torch
 import numpy as np
+from lightgcn import LightGCN
 from scratch import Scratch
 from utils import saveObject
 
-from read import RatingData, PairData
+from read import RatingData, PairData, PairGraphData
 from read import loadData, readRating_full, readRating_group
 
 import wandb
@@ -117,93 +121,100 @@ class Instance(object):
         self.logger.info(f"{self.name} begin:")
         # read raw data
         train_rating, test_rating, active_rating, inactive_rating = self.read()
-
-        if self.param.learn_type == 'retrain':
-            # load data
+        
+        
+        # 공통 데이터 로드 함수 분리
+        def load_datasets(train_r, test_r, active_r, inactive_r, model_type):
             if model_type in ['wmf', 'dmf', 'gmf', 'nmf']:
-                train_data = loadData(RatingData(train_rating), self.param.batch,
-                                      self.param.n_worker,
-                                      True)
+                train_data = loadData(RatingData(train_r), self.param.batch, self.param.n_worker, True)
+                test_data = loadData(RatingData(test_r), len(test_r[0]), self.param.n_worker, False)
+                active_data = loadData(RatingData(active_r), len(active_r[0]), self.param.n_worker, False) if active_r else None
+                inactive_data = loadData(RatingData(inactive_r), len(inactive_r[0]), self.param.n_worker, False) if inactive_r else None
+                return train_data, test_data, active_data, inactive_data
 
-            elif model_type in ['bpr', 'lightgcn']:
-                train_data = loadData(PairData(train_rating, self.param.pos_data), self.param.batch,
-                                      self.param.n_worker,
-                                      True)
+            elif model_type == 'bpr':
+                train_data = loadData(PairData(train_r, self.param.pos_data), self.param.batch, self.param.n_worker, True)
+                test_data = loadData(RatingData(test_r), len(test_r[0]), self.param.n_worker, False)
+                active_data = loadData(RatingData(active_r), len(active_r[0]), self.param.n_worker, False) if active_r else None
+                inactive_data = loadData(RatingData(inactive_r), len(inactive_r[0]), self.param.n_worker, False) if inactive_r else None
+                return train_data, test_data, active_data, inactive_data
 
-            test_data = loadData(RatingData(test_rating), len(test_rating[0]), self.param.n_worker, False)
-            active_test_data = loadData(RatingData(active_rating), len(active_rating[0]), self.param.n_worker,
-                                        False)
-            inactive_test_data = loadData(RatingData(inactive_rating), len(inactive_rating[0]), self.param.n_worker,
-                                          False)
-
-            self.logger.info(f"Train_data_unique: {len(np.unique(train_rating[0].values))}")
-            self.logger.info(f'Test_data_unique: {len(np.unique(test_rating[0].values))}')
+            #lightGCN의 경우에 edge_index 넘겨주기
+            elif model_type == 'lightgcn':
+                train_dataset = PairGraphData(train_r, self.param.pos_data, self.param.n_user, self.param.n_item)
+                test_dataset = PairGraphData(test_r, self.param.pos_data, self.param.n_user, self.param.n_item)
+                active_dataset = PairGraphData(active_r, self.param.pos_data, self.param.n_user, self.param.n_item) if active_r else None
+                inactive_dataset = PairGraphData(inactive_r, self.param.pos_data, self.param.n_user, self.param.n_item) if inactive_r else None
+                return train_dataset.edge_index, test_dataset.edge_index, \
+                    active_dataset.edge_index if active_dataset else None, \
+                    inactive_dataset.edge_index if inactive_dataset else None
+        
+        # 학습 실행
+        def train_and_log(model, train_data, test_data, active_test_data, inactive_test_data, group_idx=None):
+            if hasattr(model, "train_model"):  # LightGCN
+                model, result = model.train_model(train_data, test_data, active_test_data, inactive_test_data, verbose)
+            else:  # Scratch 스타일
+                model, result = model.train(train_data, test_data, active_test_data, inactive_test_data, verbose, given_model='')
             
-            print(f'Train_data_unique: {len(np.unique(train_rating[0].values))}')
-            print(f'Test_data_unique: {len(np.unique(test_rating[0].values))}')
-            
-            model = Scratch(self.param, model_type)
-            model, result = model.train(train_data, test_data, active_test_data, inactive_test_data, verbose,
-                                        given_model='')
-            
-            
-            # wandb metric 기록
+            # WandB metric 로깅
+            prefix = f"Group{group_idx}_" if group_idx is not None else ""
             wandb.log({
-                "Recall@10": result.get("Recall", 0),
-                "NDCG@10": result.get("NDCG", 0),
-                "HitRatio@10": result.get("HitRatio", 0)
+                f"{prefix}Recall@10": result.get("Recall", 0),
+                f"{prefix}NDCG@10": result.get("NDCG", 0),
+                f"{prefix}HitRatio@10": result.get("HitRatio", 0)
             })
             
-            result.update({'model': model_type, 'dataset': self.param.dataset, 'deltype': self.param.del_type,
-                           'method': self.param.learn_type})
-            np.save(
-                f'results/{self.param.learn_type}/{model_type}_{self.param.dataset}_{self.param.del_type}_{self.param.del_per}.npy',
-                result)
+            # 저장
+            save_name = (f"group{group_idx}_{self.param.n_group}_" if group_idx is not None else "") + \
+                        f"{model_type}_{self.param.dataset}_{self.param.del_type}_{self.param.del_per}.npy"
+            result.update({'model': model_type, 'dataset': self.param.dataset,
+                        'deltype': self.param.del_type, 'method': self.param.learn_type})
+            np.save(f'results/{self.param.learn_type}/{save_name}', result)
+            
+        # ===== learn type = retrain =====
+        if self.param.learn_type == 'retrain':
+            train_data, test_data, active_test_data, inactive_test_data = load_datasets(
+                train_rating, test_rating, active_rating, inactive_rating, model_type)
+            
+            # 모델 초기화
+            if model_type in ['wmf', 'dmf', 'gmf', 'nmf', 'bpr']:
+                model = Scratch(self.param, model_type)
+            elif model_type == 'lightgcn':
+                model = LightGCN(self.param.n_user, self.param.n_item, embedding_dim=64, K=3)
+                
+            self.logger.info(f"Train_data_unique: {len(np.unique(train_rating[0].values))}")
+            self.logger.info(f"Test_data_unique: {len(np.unique(test_rating[0].values))}")
+            print(f"Train_data_unique: {len(np.unique(train_rating[0].values))}")
+            print(f"Test_data_unique: {len(np.unique(test_rating[0].values))}")
+
+            train_and_log(model, train_data, test_data, active_test_data, inactive_test_data)
+
             print('End of training', self.name)
             self.logger.info(f"Training finished for {self.name}")
+
+        # ===== Group-based =====
         else:
             group = self.param.n_group
             for i in range(group):
-                # load data
-                if model_type in ['wmf', 'dmf', 'gmf', 'nmf']:
-                    train_data = loadData(RatingData(train_rating[i]), self.param.batch,
-                                          self.param.n_worker,
-                                          True)
-                elif model_type in ['bpr', 'lightgcn']:
-                    train_data = loadData(PairData(train_rating[i], self.param.pos_data), self.param.batch,
-                                          self.param.n_worker,
-                                          True)
+                train_data, test_data, active_test_data, inactive_test_data = load_datasets(
+                    train_rating[i], test_rating[i], active_rating[i], inactive_rating[i], model_type)
 
-                test_data = loadData(RatingData(test_rating[i]), len(test_rating[i][0]), self.param.n_worker, False)
-                if len(active_rating[i][0]) > 0:
-                    active_test_data = loadData(RatingData(active_rating[i]), len(active_rating[i][0]),
-                                                self.param.n_worker,
-                                                False)
-                else:
-                    active_test_data = None
-                inactive_test_data = loadData(RatingData(inactive_rating[i]), len(inactive_rating[i][0]),
-                                              self.param.n_worker,
-                                              False)
+                # 모델 초기화
+                if model_type in ['wmf', 'dmf', 'gmf', 'nmf', 'bpr']:
+                    model = Scratch(self.param, model_type)
+                elif model_type == 'lightgcn':
+                    model = LightGCN(self.param.n_user, self.param.n_item, embedding_dim=64, K=3)
+            
+                # group-specific 데이터 로깅
+                self.logger.info(f"Group {i+1} Train_data_unique: {len(np.unique(train_rating[i][0].values))}")
+                self.logger.info(f"Group {i+1} Test_data_unique: {len(np.unique(test_rating[i][0].values))}")
+                print(f"Group {i+1} Train_data_unique: {len(np.unique(train_rating[i][0].values))}")
+                print(f"Group {i+1} Test_data_unique: {len(np.unique(test_rating[i][0].values))}")
 
-                model = Scratch(self.param, model_type)
-                model, result = model.train(train_data, test_data, active_test_data, inactive_test_data, verbose,
-                                            given_model='')
-                
-                # wandb metric 기록
-                wandb.log({
-                    f"Group{i+1}_Recall@10": result.get("Recall", 0),
-                    f"Group{i+1}_NDCG@10": result.get("NDCG", 0),
-                    f"Group{i+1}_HitRatio@10": result.get("HitRatio", 0)
-                })
-                
-                result.update({'model': model_type, 'dataset': self.param.dataset, 'deltype': self.param.del_type,
-                               'method': self.param.learn_type, 'group': i + 1})
-                np.save(
-                    f'results/{self.param.learn_type}/group{i + 1}_{self.param.n_group}_{model_type}_{self.param.dataset}_{self.param.del_type}_{self.param.del_per}.npy',
-                    result)
-                
-                print(f'End of Group {str(i + 1)} / {group} training', self.name)
-                self.logger.info('End of Group %s / %s training %s', str(i + 1), group, self.name)
+                train_and_log(model, train_data, test_data, active_test_data, inactive_test_data, group_idx=i+1)
+
+                print(f'End of Group {i+1} / {group} training', self.name)
+                self.logger.info(f'End of Group {i+1} / {group} training {self.name}')
 
     def run(self, verbose=2):
         self.runModel(self.param.model, verbose)

@@ -175,7 +175,22 @@ def readRating_group(train_dir, test_dir, del_type='random', del_per=5, learn_ty
     return train_rating_groups, test_rating_groups, active_groups, inactive_groups
 
 
+
 class RatingData(Dataset):
+    """
+    함수 설명: Explicit Feedback - WMF, DMF, GMF, NMF 모델에서 사용
+
+    Args:
+        데이터 형태 예시
+        uid   iid   val
+        0     10    5
+        0     15    4
+        1     8     3
+
+    Returns:
+        getitem
+        (user, item, rating) = (tensor(0), tensor(10), tensor(5.0))
+    """
     def __init__(self, rating_array):
         super(RatingData, self).__init__()
         self.rating_array = rating_array
@@ -264,6 +279,20 @@ class RatingData(Dataset):
 
 
 class PairData(Dataset):
+    """
+    함수 설명: Implicit Feedback + Ranking - BPR 모델에서 사용
+
+    Args:
+        데이터 형태 예시
+        uid   pos_iid
+        0     10
+        0     15
+        1     8
+
+    Returns:
+        getitem
+        (user, pos_item, neg_item) = (tensor(0), tensor(10), tensor(20))
+    """
     def __init__(self, rating_array, pos_dir):
         super(PairData, self).__init__()
         self.pos_dir = pos_dir
@@ -318,6 +347,71 @@ class PairData(Dataset):
 
         # self.neg_items = new_rating_array[1].astype(int)
 
+        self.neg_items = neg_item_list
+
+
+
+class PairGraphData(Dataset):
+    """
+    함수 설명: Graph 구조 기반 Pair data - LightGCN 모델에서 사용
+
+    Args:
+        데이터 형태 예시
+        edge_index = tensor([
+            [0, 0, 1],         # source (users)
+            [953, 958, 951]    # destination (items + offset)
+        ])
+
+    Returns:
+        getitem
+        (user, pos_item, neg_item) = (tensor(0), tensor(10), tensor(20))
+        
+        edge_index
+        
+    """
+    def __init__(self, rating_array, pos_dir, n_user, n_item):
+        super(PairGraphData, self).__init__()
+        self.pos_dir = pos_dir
+        self.rating_array = rating_array
+        self.n_user = n_user
+        self.n_item = n_item
+
+        # 기본 user-item 데이터
+        self.users = self.rating_array[0].astype(int)
+        self.pos_items = self.rating_array[1].astype(int)
+        self.neg_items = self.rating_array[1].astype(int)  # 초기화 후 ng_sample에서 채움
+
+        # Positive dictionary (positive items set per user)
+        self.pos_dict = np.load(self.pos_dir, allow_pickle=True).item()
+
+        # Edge Index (LightGCN에서 그래프 메시지 패싱에 사용)
+        self.edge_index = self.build_edge_index()
+
+    def build_edge_index(self):
+        src = self.users.values
+        dst = self.pos_items.values + self.n_user  # 아이템 index를 user index 뒤에 붙이기 (LightGCN style)
+        edge_index = torch.tensor([src, dst], dtype=torch.long)
+        return edge_index
+
+    def __len__(self):
+        return len(self.users)
+
+    def __getitem__(self, idx):
+        user = self.users[idx]
+        pos = self.pos_items[idx]
+        neg = self.neg_items[idx]
+        return (torch.tensor(user, dtype=torch.long),
+                torch.tensor(pos, dtype=torch.long),
+                torch.tensor(neg, dtype=torch.long))
+
+    def ng_sample(self, ng_sample=1):
+        neg_item_list = []
+        for userid in self.users:
+            for _ in range(ng_sample):
+                j = np.random.randint(self.n_item)
+                while j in self.pos_dict[userid]:
+                    j = np.random.randint(self.n_item)
+                neg_item_list.append(j)
         self.neg_items = neg_item_list
 
 

@@ -26,7 +26,7 @@ mkdir -p ./log
 dataset="ml-100k"
 model="wmf"
 group=10
-learn="retrain"
+learn="sisa"
 deltype="interaction"
 delper=5
 verbose=2

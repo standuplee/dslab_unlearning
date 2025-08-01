@@ -1,0 +1,8 @@
+numpy>=1.21
+pandas>=1.3
+torch==1.10.2+cpu ; platform_system != "Darwin"
+torch==1.10.2 ; platform_system == "Darwin"
+scikit-learn>=1.0
+matplotlib>=3.4
+tqdm>=4.62
+POT>=0.8.0

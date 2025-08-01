@@ -5,39 +5,12 @@ import ot
 import torch
 from torch import nn
 
+from evaluations.base_metrics import recall, hit, ndcg
+from evaluations.retain_metrics import retain_metrics
+
+from Methods.SVD_Unlearning import svd_based_unlearning, joint_svd_unlearning
+
 STD = 0.01
-
-def recall(gt_items, pred_items):
-    hits = 0
-    for gt_item in gt_items:
-        if gt_item in pred_items:
-            hits += 1
-    return hits / len(gt_items) if len(gt_items) > 0 else 0
-
-
-def hit(gt_items, pred_items):
-    hr = 0
-    for gt_item in gt_items:
-        if gt_item in pred_items:
-            hr = hr + 1
-
-    return hr / len(gt_items)
-
-
-def ndcg(gt_items, pred_items):
-    dcg = 0
-    idcg = 0
-
-    for gt_item in gt_items:
-        if gt_item in pred_items:
-            index = pred_items.index(gt_item)
-            dcg = dcg + np.reciprocal(np.log2(index + 2))
-
-    for index in range(len(gt_items)):
-        idcg = idcg + np.reciprocal(np.log2(index + 2))
-
-    return dcg / idcg
-
 
 ##################### 
 # model training
@@ -476,3 +449,40 @@ def aggregation(model_list, train_dlist, test_dlist, test_data, verbose, save_di
     self.test(test_data, verbose, save_dir)
 
     return self.model_list
+
+def convert_rating_to_tensor(train_rating, n_user, n_item):
+    """
+    train_rating을 (num_user, num_item) 차원의 tensor로 변환합니다.
+    
+    Args:
+        train_rating: [user_ids, item_ids, ratings] 형태의 리스트
+        n_user: 전체 사용자 수
+        n_item: 전체 아이템 수
+    
+    Returns:
+        torch.Tensor: (n_user, n_item) 차원의 평점 매트릭스
+    """
+    # 빈 매트릭스 생성 (0으로 초기화)
+    rating_matrix = torch.zeros(n_user, n_item, dtype=torch.float32)
+    
+    # 사용자 ID와 아이템 ID를 인덱스로 변환
+    user_ids = train_rating[0].values
+    item_ids = train_rating[1].values
+    ratings = train_rating[2].values
+    
+    # 평점 매트릭스에 값 채우기
+    for i in range(len(user_ids)):
+        user_idx = int(user_ids[i])
+        item_idx = int(item_ids[i])
+        rating_val = float(ratings[i])
+        rating_matrix[user_idx, item_idx] = rating_val
+    
+    return rating_matrix
+
+
+def rank_based_prob(predictions, target_mask):
+   ranks = torch.argsort(torch.argsort(predictions, dim=1, descending=True), dim=1)
+   n_items = predictions.shape[1]
+   # Convert rank to probability (higher rank = lower prob)
+   rank_probs = 1.0 - (ranks.float() / (n_items - 1))
+   return torch.sum(rank_probs * target_mask) / torch.sum(target_mask)
