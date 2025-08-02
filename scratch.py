@@ -27,7 +27,12 @@ class Scratch(object):
         self.seed = param.seed
         self.lr = param.lr
         self.epochs = param.epochs
-        self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        #self.device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+        self.device = (
+            'mps' if torch.backends.mps.is_available()
+            else 'cuda:0' if torch.cuda.is_available()
+            else 'cpu'
+        )
 
         self.pos_dir = param.pos_data
         

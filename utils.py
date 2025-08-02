@@ -268,7 +268,11 @@ def baseTest(dataloader, model, loss_fn, device, verbose, pos_dict,
 
             predictions = model(new_user, new_item)
             _, indices = torch.topk(predictions, top_k)
-            recommends = torch.take(new_item, indices).cpu().numpy().tolist()
+            
+            indices = indices.clamp(0, new_item.numel() - 1)  # 범위 제한
+            #recommends = torch.take(new_item, indices).cpu().numpy().tolist()
+            recommends = torch.take(new_item.flatten(), indices).cpu().numpy().tolist()
+
 
             HR.append(hit(gt_items, recommends))
             NDCG.append(ndcg(gt_items, recommends))

@@ -45,7 +45,15 @@ class LightGCN(MessagePassing):
 
     def train_model(self, train_edge_index, test_edge_index, active_edge_index=None, inactive_edge_index=None,
                     epochs=200, batch=1024, lr=1e-3, per_eval=50, per_lr_decay=200, K=20, LAMBDA=1e-6, verbose=2):
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        #device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        if torch.backends.mps.is_available():
+            device = torch.device("mps")
+        elif torch.cuda.is_available():
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
+
+
         self.to(device)
 
         optimizer = optim.Adam(self.parameters(), lr=lr)

@@ -42,18 +42,18 @@ beta=(0.01 0.05 0.1 0.5 1.0 1.5 2.0 2.5 3.0 5.0 10.0)
 verbose=2
 
 # Original model training
-python main.py --dataset gowalla --learn retrain --deltype interaction --delper 0.0 --verbose 2
+python main.py --dataset ml-100k --learn retrain --deltype interaction --delper 0.0 --verbose 2
 
 # Ideal model training
 
 for delper in ${delper_values[@]}; do
-    python main.py --dataset gowalla --learn retrain --deltype interaction --delper $delper --verbose 2
+    python main.py --dataset ml-100k --learn retrain --deltype interaction --delper $delper --verbose 2
 done
 
 for delper in ${delper_values[@]}; do
     for beta in ${beta[@]}; do
             python main_task2.py \
-            --dataset gowalla \
+            --dataset ml-100k \
             --delper $delper \
             --beta $beta \
             --verbose 2 \
