@@ -1,5 +1,6 @@
 import os, warnings, logging
 from os.path import join, exists
+from Methods.IFRU import IFRU
 import numpy as np
 import torch
 
@@ -82,11 +83,11 @@ class BaselineInstance(object):
         self.logger.info("Running SCIF logic...")
         trainer = Trainer(self.param)
         return trainer.train(train_data, test_data, active_data, inactive_data, verbose)
-
+    
     def _train_ifru(self, train_data, test_data, active_data, inactive_data, verbose):
-        self.logger.info("Running IFRU logic...")
-        trainer = Trainer(self.param)
-        return trainer.train(train_data, test_data, active_data, inactive_data, verbose)
+        self.logger.info("Running IFRU unlearning logic...")
+        ifru = IFRU(self.param)
+        return ifru.run(train_data, test_data, active_data, inactive_data, verbose)
 
     def _train_ours(self, train_data, test_data, active_data, inactive_data, verbose):
         self.logger.info("Running OURS logic (SVD TaskVector)...")
